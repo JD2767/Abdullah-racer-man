@@ -1,0 +1,106 @@
+const express = require('express');
+const http = require('http');
+const socketIO = require('socket.io');
+
+const app = express();
+const server = http.createServer(app);
+const io = socketIO(server);
+
+let players = {};
+
+io.on('connection', socket => {
+    console.log('New player connected: ' + socket.id);
+
+    players[socket.id] = {
+        x: 100,
+        y: 100,
+        angle: 0,
+        speed: 0
+    };
+
+    socket.emit('currentPlayers', players);
+    socket.broadcast.emit('newPlayer', { id: socket.id, data: players[socket.id] });
+
+    socket.on('move', data => {
+        if (players[socket.id]) {
+            players[socket.id] = data;
+            socket.broadcast.emit('playerMoved', { id: socket.id, data: data });
+        }
+    });
+
+    socket.on('disconnect', () => {
+        console.log('Player disconnected: ' + socket.id);
+        delete players[socket.id];
+        io.emit('playerDisconnected', socket.id);
+    });
+});
+
+app.use(express.static('public'));
+
+server.listen(3000, () => {
+    console.log('Server listening on port 3000');
+});
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Online Racing</title>
+  <style>
+    canvas { background: #111; display: block; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let players = {};
+
+    socket.on('currentPlayers', (data) => {
+      players = data;
+    });
+
+    socket.on('newPlayer', (data) => {
+      players[data.id] = data.data;
+    });
+
+    socket.on('playerMoved', (data) => {
+      if (players[data.id]) {
+        players[data.id] = data.data;
+      }
+    });
+
+    socket.on('playerDisconnected', (id) => {
+      delete players[id];
+    });
+
+    document.addEventListener('keydown', e => {
+      let player = players[socket.id];
+      if (!player) return;
+
+      if (e.key === 'ArrowUp') player.y -= 5;
+      if (e.key === 'ArrowDown') player.y += 5;
+      if (e.key === 'ArrowLeft') player.x -= 5;
+      if (e.key === 'ArrowRight') player.x += 5;
+
+      socket.emit('move', player);
+    });
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let id in players) {
+        let p = players[id];
+        ctx.fillStyle = id === socket.id ? 'blue' : 'red';
+        ctx.fillRect(p.x, p.y, 30, 30);
+      }
+      requestAnimationFrame(draw);
+    }
+
+    draw();
+  </script>
+</body>
+</html>
